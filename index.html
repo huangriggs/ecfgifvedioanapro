@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini GIF/影片專業分析工具</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+        }
+        .loader {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .timeline-item {
+            position: relative;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .timeline-item:hover {
+            transform: scale(1.05);
+        }
+        .timeline-marker {
+            position: absolute;
+            top: -8px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 12px;
+            height: 12px;
+            background: #3b82f6;
+            border-radius: 50%;
+            border: 2px solid white;
+        }
+        .frame-annotation {
+            position: absolute;
+            background: rgba(59, 130, 246, 0.9);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 min-h-screen p-4">
+
+    <div class="w-full max-w-6xl mx-auto bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6 md:p-8">
+        <div class="text-center mb-6">
+            <h1 class="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">GIF/影片專業分析工具</h1>
+            <p class="text-gray-500 dark:text-gray-400 mt-2">智能分析 GIF 或影片內容,支援關鍵影格標記與影格標註功能</p>
+        </div>
+
+        <!-- API Key Input -->
+        <div class="mb-4">
+            <label for="apiKey" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">您的 Google AI API Key</label>
+            <div class="flex items-center space-x-2">
+                <input type="password" id="apiKey" class="flex-grow px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="請在這裡輸入您的 API Key">
+                <button id="verifyApiKeyBtn" class="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 w-28 text-center">驗證連線</button>
+            </div>
+            <p id="apiKeyStatus" class="text-xs text-gray-500 dark:text-gray-400 mt-1 h-4"></p>
+        </div>
+
+        <!-- File Upload with Size Info -->
+        <div class="mb-4">
+            <label for="gifFile" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">1. 上傳 GIF 或影片檔案</label>
+            <input type="file" id="gifFile" accept="image/gif,video/mp4,video/webm,video/mov,video/avi" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/50 dark:file:text-blue-300 dark:hover:file:bg-blue-900">
+            <div class="flex justify-between items-center mt-2">
+                <p class="text-xs text-gray-500 dark:text-gray-400">影片限制 30 秒內,建議檔案大小 &lt; 50MB</p>
+                <p id="fileSize" class="text-xs font-medium"></p>
+            </div>
+            
+            <!-- Compression Options -->
+            <div id="compressionOptions" class="mt-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg" style="display: none;">
+                <p class="text-sm text-yellow-800 dark:text-yellow-200 mb-2">⚠️ 檔案較大,建議壓縮以提升處理速度</p>
+                <label class="flex items-center space-x-2 text-sm">
+                    <input type="checkbox" id="autoCompress" class="rounded">
+                    <span>自動壓縮影片 (縮放至 720p)</span>
+                </label>
+            </div>
+        </div>
+
+        <!-- Frame Count Selection -->
+        <div class="mb-4">
+            <label for="frameCount" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">抽取影格數量</label>
+            <input type="range" id="frameCount" min="5" max="20" value="10" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700">
+            <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
+                <span>5 幀</span>
+                <span id="frameCountValue" class="font-medium text-blue-600 dark:text-blue-400">10 幀</span>
+                <span>20 幀</span>
+            </div>
+        </div>
+
+        <!-- Prompt Templates -->
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">2. 選擇分析模板 (可選)</label>
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
+                <button class="prompt-template px-3 py-2 text-sm bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900 transition" data-template="story">📖 故事描述</button>
+                <button class="prompt-template px-3 py-2 text-sm bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900 transition" data-template="sports">🏃 體育動作</button>
+                <button class="prompt-template px-3 py-2 text-sm bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900 transition" data-template="product">📦 產品展示</button>
+                <button class="prompt-template px-3 py-2 text-sm bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900 transition" data-template="tutorial">📚 教學演示</button>
+                <button class="prompt-template px-3 py-2 text-sm bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900 transition" data-template="general">🔍 一般分析</button>
+            </div>
+        </div>
+
+        <!-- Prompt Input -->
+        <div class="mb-6">
+            <label for="prompt" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">3. 輸入您的問題</label>
+            <textarea id="prompt" rows="3" class="w-full px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="描述您想要分析的內容..."></textarea>
+        </div>
+        
+        <!-- Action Button -->
+        <div class="text-center flex justify-center items-center gap-4">
+            <button id="analyzeBtn" class="bg-blue-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-800 transition-all duration-300">
+                🚀 開始智能分析
+            </button>
+            <button id="downloadTxtBtn" class="px-4 py-3 bg-orange-500 text-white font-medium rounded-lg hover:bg-orange-600 focus:outline-none focus:ring-4 focus:ring-orange-300 transition-all duration-300" style="display: none;">
+                📥 下載 TXT
+            </button>
+        </div>
+
+        <!-- Progress Bar -->
+        <div id="progressContainer" class="mt-6" style="display: none;">
+            <div class="flex justify-between text-sm text-gray-600 dark:text-gray-400 mb-2">
+                <span id="progressStatus">準備中...</span>
+                <span id="progressPercent">0%</span>
+            </div>
+            <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3">
+                <div id="progressBar" class="bg-blue-600 h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+        </div>
+
+        <!-- Timeline Display -->
+        <div id="timeline-container" class="mt-8" style="display: none;">
+            <h3 class="text-lg font-semibold mb-3 text-gray-900 dark:text-white">📽️ 影格時間軸</h3>
+            <div class="relative bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
+                <div class="absolute top-4 left-4 right-4 h-1 bg-gray-300 dark:bg-gray-600"></div>
+                <div id="timeline" class="grid grid-cols-5 md:grid-cols-10 gap-3 relative"></div>
+            </div>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">點擊影格可查看詳細資訊</p>
+        </div>
+
+        <!-- Selected Frame Detail -->
+        <div id="frame-detail" class="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg" style="display: none;">
+            <h3 class="text-md font-semibold mb-2 text-gray-900 dark:text-white">🎯 影格詳細資訊</h3>
+            <div class="grid md:grid-cols-2 gap-4">
+                <div>
+                    <img id="selectedFrame" class="w-full rounded-lg shadow-md" alt="Selected Frame">
+                </div>
+                <div>
+                    <p class="text-sm text-gray-700 dark:text-gray-300 mb-2"><strong>影格位置:</strong> <span id="framePosition"></span></p>
+                    <p class="text-sm text-gray-700 dark:text-gray-300 mb-2"><strong>時間點:</strong> <span id="frameTime"></span></p>
+                    <div id="frameAnnotation" class="mt-3">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">添加標註:</label>
+                        <input type="text" id="annotationInput" class="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm" placeholder="輸入此影格的描述...">
+                        <button id="saveAnnotation" class="mt-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">保存標註</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Result Display -->
+        <div id="result-container" class="mt-8" style="display: none;">
+            <h2 class="text-xl font-semibold mb-4 text-gray-900 dark:text-white">📊 分析結果</h2>
+            
+            <!-- Main Result -->
+            <div class="p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
+                <div id="loader" class="loader mx-auto mb-4" style="display: none;"></div>
+                <div id="result" class="text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed"></div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/omggif@1.0.10/omggif.min.js"></script>
+    <script>
+        const gifFileInput = document.getElementById('gifFile');
+        const promptInput = document.getElementById('prompt');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const resultContainer = document.getElementById('result-container');
+        const loader = document.getElementById('loader');
+        const resultDiv = document.getElementById('result');
+        const apiKeyInput = document.getElementById('apiKey');
+        const verifyApiKeyBtn = document.getElementById('verifyApiKeyBtn');
+        const apiKeyStatus = document.getElementById('apiKeyStatus');
+        const fileSizeDisplay = document.getElementById('fileSize');
+        const compressionOptions = document.getElementById('compressionOptions');
+        const autoCompressCheckbox = document.getElementById('autoCompress');
+        const frameCountSlider = document.getElementById('frameCount');
+        const frameCountValue = document.getElementById('frameCountValue');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
+        const progressStatus = document.getElementById('progressStatus');
+        const progressPercent = document.getElementById('progressPercent');
+        const timelineContainer = document.getElementById('timeline-container');
+        const timeline = document.getElementById('timeline');
+        const frameDetail = document.getElementById('frame-detail');
+        const downloadTxtBtn = document.getElementById('downloadTxtBtn');
+
+        let isKeyVerified = false;
+        let currentFrames = [];
+        let frameAnnotations = {};
+        let currentFileName = '';
+
+        const promptTemplates = {
+            story: "請將這段影片內容改寫成一個完整、流暢的故事描述。要求:\n1. 用連貫的敘事方式描述整個過程,不要分段或分點說明\n2. 像講故事一樣自然流暢,有開頭、發展和結尾\n3. 注重情節的連續性和邏輯性\n4. 描述要生動具體,讓讀者能想像畫面\n5. 整個描述要像一段完整的文章,而不是場景列表\n\n請直接開始講述這個故事:",
+            sports: "詳細分析這段體育動作影片,包括:\n1. 主要動作類型和技術要點\n2. 動作的完整性和流暢度\n3. 關鍵姿勢和時間點\n4. 可能的改進建議",
+            product: "分析這個產品展示內容,包括:\n1. 產品的主要特徵和賣點\n2. 展示方式和呈現效果\n3. 產品使用場景\n4. 視覺吸引力評估",
+            tutorial: "分析這個教學演示,包括:\n1. 教學步驟的清晰度\n2. 關鍵操作和注意事項\n3. 演示的完整性\n4. 學習者可能的困難點",
+            general: "請詳細描述這個媒體內容,包括:\n1. 主要場景和人物\n2. 發生的事件順序\n3. 重要的視覺元素\n4. 整體氛圍和情緒"
+        };
+
+        // Event Listeners
+        analyzeBtn.addEventListener('click', handleAnalysis);
+        verifyApiKeyBtn.addEventListener('click', handleApiKeyVerification);
+        gifFileInput.addEventListener('change', handleFileSelection);
+        downloadTxtBtn.addEventListener('click', downloadResultAsTxt);
+        frameCountSlider.addEventListener('input', (e) => {
+            frameCountValue.textContent = `${e.target.value} 幀`;
+        });
+
+        document.querySelectorAll('.prompt-template').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const template = e.currentTarget.dataset.template;
+                promptInput.value = promptTemplates[template];
+                document.querySelectorAll('.prompt-template').forEach(b => {
+                    b.classList.remove('bg-blue-500', 'text-white');
+                    b.classList.add('bg-gray-100', 'dark:bg-gray-700');
+                });
+                e.currentTarget.classList.remove('bg-gray-100', 'dark:bg-gray-700');
+                e.currentTarget.classList.add('bg-blue-500', 'text-white');
+            });
+        });
+
+        function handleFileSelection() {
+            const file = gifFileInput.files[0];
+            if (!file) return;
+
+            const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+            fileSizeDisplay.textContent = `檔案大小: ${sizeMB} MB`;
+            fileSizeDisplay.className = 'text-xs font-medium';
+            
+            if (file.size > 50 * 1024 * 1024) {
+                fileSizeDisplay.classList.add('text-red-600');
+                compressionOptions.style.display = 'block';
+            } else if (file.size > 20 * 1024 * 1024) {
+                fileSizeDisplay.classList.add('text-yellow-600');
+                compressionOptions.style.display = 'block';
+            } else {
+                fileSizeDisplay.classList.add('text-green-600');
+                compressionOptions.style.display = 'none';
+            }
+        }
+
+        function resetApiKeyState() {
+            isKeyVerified = false;
+            apiKeyInput.disabled = false;
+            apiKeyInput.value = '';
+            verifyApiKeyBtn.textContent = '驗證連線';
+            verifyApiKeyBtn.disabled = false;
+            verifyApiKeyBtn.className = 'px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 w-28 text-center';
+            apiKeyStatus.textContent = '';
+        }
+
+        async function handleApiKeyVerification() {
+            if (isKeyVerified) {
+                resetApiKeyState();
+                return;
+            }
+
+            const apiKey = apiKeyInput.value.trim();
+            if (!apiKey) {
+                apiKeyStatus.textContent = '⚠ 請先輸入 API Key。';
+                apiKeyStatus.style.color = 'red';
+                return;
+            }
+
+            verifyApiKeyBtn.disabled = true;
+            verifyApiKeyBtn.textContent = '驗證中...';
+            apiKeyStatus.textContent = '正在連線至 Google AI...';
+            apiKeyStatus.style.color = '';
+
+            const verificationUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
+
+            try {
+                const response = await fetch(verificationUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    isKeyVerified = true;
+                    apiKeyStatus.textContent = '✅ 驗證成功!';
+                    apiKeyStatus.style.color = 'green';
+                    apiKeyInput.disabled = true;
+                    verifyApiKeyBtn.textContent = '更換金鑰';
+                    verifyApiKeyBtn.className = 'px-4 py-2 text-sm font-medium text-white bg-gray-500 rounded-lg hover:bg-gray-600 w-28 text-center';
+                } else {
+                    let errorMessage = `HTTP 錯誤 ${response.status}`;
+                    try {
+                        const errorData = await response.json();
+                        errorMessage = errorData.error?.message || errorMessage;
+                    } catch (e) {
+                        // 無法解析錯誤訊息,使用預設訊息
+                    }
+                    throw new Error(errorMessage);
+                }
+            } catch (error) {
+                isKeyVerified = false;
+                apiKeyStatus.textContent = `⚠ 驗證失敗: ${error.message}`;
+                apiKeyStatus.style.color = 'red';
+                verifyApiKeyBtn.textContent = '驗證連線';
+            } finally {
+                verifyApiKeyBtn.disabled = false;
+            }
+        }
+
+        function updateProgress(percent, status) {
+            progressBar.style.width = `${percent}%`;
+            progressPercent.textContent = `${percent}%`;
+            progressStatus.textContent = status;
+        }
+
+        async function handleAnalysis() {
+            const file = gifFileInput.files[0];
+            let userPrompt = promptInput.value.trim();
+            const apiKey = apiKeyInput.value.trim();
+            const maxFrames = parseInt(frameCountSlider.value);
+
+            if (!isKeyVerified) {
+                alert('請先驗證您的 API Key。');
+                return;
+            }
+
+            if (!file) {
+                alert('請先選擇一個 GIF 或影片檔案。');
+                return;
+            }
+
+            // 保存檔案名稱
+            currentFileName = file.name.replace(/\.[^/.]+$/, '');
+
+            const isGif = file.type === 'image/gif';
+            const isVideo = file.type.startsWith('video/');
+
+            if (!isGif && !isVideo) {
+                alert('請上傳 GIF 或影片檔案。');
+                return;
+            }
+
+            if (!userPrompt) {
+                userPrompt = promptTemplates.general;
+                promptInput.value = userPrompt;
+            }
+
+            analyzeBtn.disabled = true;
+            analyzeBtn.textContent = '⏳ 分析中...';
+            resultContainer.style.display = 'none';
+            timelineContainer.style.display = 'none';
+            frameDetail.style.display = 'none';
+            progressContainer.style.display = 'block';
+            frameAnnotations = {};
+
+            try {
+                updateProgress(10, '正在讀取檔案...');
+
+                let frames;
+                if (isGif) {
+                    frames = await extractFramesFromGif(file, maxFrames);
+                } else {
+                    const shouldCompress = autoCompressCheckbox.checked;
+                    frames = await extractFramesFromVideo(file, maxFrames, shouldCompress);
+                }
+
+                if (frames.length === 0) {
+                    throw new Error("無法從檔案中提取任何影格。");
+                }
+
+                currentFrames = frames;
+                updateProgress(40, '影格提取完成,顯示時間軸...');
+                displayTimeline(frames);
+
+                updateProgress(50, '正在呼叫 AI 進行分析...');
+
+                const imageParts = frames.map(frame => ({
+                    inlineData: {
+                        mimeType: 'image/jpeg',
+                        data: frame.split(',')[1]
+                    }
+                }));
+
+                const payload = {
+                    contents: [{
+                        parts: [
+                            { text: userPrompt },
+                            ...imageParts
+                        ]
+                    }],
+                    generationConfig: {
+                        "temperature": 0.4,
+                        "topK": 32,
+                        "topP": 1,
+                        "maxOutputTokens": 4096,
+                    }
+                };
+
+                updateProgress(60, 'AI 分析中...');
+
+                const model = 'gemini-2.0-flash-exp';
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                updateProgress(80, '處理回應...');
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(`API 請求失敗: ${response.status} ${response.statusText}. ${errorData.error?.message || ''}`);
+                }
+
+                const data = await response.json();
+
+                updateProgress(90, '生成結果...');
+
+                if (data.candidates && data.candidates.length > 0 && data.candidates[0].content.parts[0].text) {
+                    const analysisResult = data.candidates[0].content.parts[0].text;
+                    
+                    resultContainer.style.display = 'block';
+                    resultDiv.textContent = analysisResult;
+                    downloadTxtBtn.style.display = 'inline-block';
+
+                    updateProgress(100, '分析完成!');
+                } else {
+                    if (data.candidates?.[0]?.finishReason === 'SAFETY') {
+                        throw new Error('回應因安全設定而被封鎖。');
+                    }
+                    throw new Error('API 回應中找不到有效的文字內容。');
+                }
+
+            } catch (error) {
+                console.error('分析過程中發生錯誤:', error);
+                resultContainer.style.display = 'block';
+                resultDiv.textContent = `錯誤:\n${error.message}`;
+                resultDiv.style.color = 'red';
+                updateProgress(0, '發生錯誤');
+            } finally {
+                analyzeBtn.disabled = false;
+                analyzeBtn.textContent = '🚀 開始智能分析';
+                setTimeout(() => {
+                    progressContainer.style.display = 'none';
+                }, 2000);
+            }
+        }
+
+        function displayTimeline(frames) {
+            timelineContainer.style.display = 'block';
+            timeline.innerHTML = '';
+
+            frames.forEach((frame, index) => {
+                const item = document.createElement('div');
+                item.className = 'timeline-item relative';
+                
+                const marker = document.createElement('div');
+                marker.className = 'timeline-marker';
+                
+                const img = document.createElement('img');
+                img.src = frame;
+                img.className = 'w-full h-auto rounded-lg shadow-md border-2 border-transparent hover:border-blue-500';
+                img.dataset.index = index;
+                
+                img.addEventListener('click', () => showFrameDetail(index));
+                
+                item.appendChild(marker);
+                item.appendChild(img);
+                
+                if (frameAnnotations[index]) {
+                    const annotation = document.createElement('div');
+                    annotation.className = 'frame-annotation';
+                    annotation.textContent = frameAnnotations[index];
+                    annotation.style.bottom = '-25px';
+                    item.appendChild(annotation);
+                }
+                
+                timeline.appendChild(item);
+            });
+        }
+
+        function showFrameDetail(index) {
+            frameDetail.style.display = 'block';
+            document.getElementById('selectedFrame').src = currentFrames[index];
+            document.getElementById('framePosition').textContent = `第 ${index + 1} / ${currentFrames.length} 幀`;
+            
+            const totalDuration = 30;
+            const timePoint = (index / (currentFrames.length - 1) * totalDuration).toFixed(2);
+            document.getElementById('frameTime').textContent = `約 ${timePoint} 秒`;
+            
+            const annotationInput = document.getElementById('annotationInput');
+            annotationInput.value = frameAnnotations[index] || '';
+            
+            document.getElementById('saveAnnotation').onclick = () => {
+                frameAnnotations[index] = annotationInput.value;
+                displayTimeline(currentFrames);
+                alert('標註已保存!');
+            };
+
+            frameDetail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function downloadResultAsTxt() {
+            const resultText = resultDiv.textContent;
+            
+            if (!resultText || resultText.startsWith('錯誤:')) {
+                alert('沒有可下載的分析結果');
+                return;
+            }
+
+            // 建立下載內容
+            const fileName = currentFileName || '未命名';
+            const timestamp = new Date().toLocaleString('zh-TW', { 
+                year: 'numeric', 
+                month: '2-digit', 
+                day: '2-digit', 
+                hour: '2-digit', 
+                minute: '2-digit' 
+            }).replace(/\//g, '-').replace(/,/g, '');
+            
+            let content = `檔案名稱: ${fileName}\n`;
+            content += `分析時間: ${timestamp}\n`;
+            content += `${'='.repeat(50)}\n\n`;
+            content += resultText;
+
+            // 建立並下載檔案
+            const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            
+            link.href = url;
+            link.download = `${fileName}_分析結果_${new Date().toISOString().slice(0, 10)}.txt`;
+            link.style.display = 'none';
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            URL.revokeObjectURL(url);
+        }
+
+        async function extractFramesFromGif(file, maxFrames = 10) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        const arrayBuffer = e.target.result;
+                        const intArray = new Uint8Array(arrayBuffer);
+                        
+                        const gifReader = new GifReader(intArray);
+                        const numFrames = gifReader.numFrames();
+                        
+                        if (numFrames === 0) {
+                            reject(new Error("無法從 GIF 中提取任何影格。"));
+                            return;
+                        }
+                        
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        canvas.width = gifReader.width;
+                        canvas.height = gifReader.height;
+                        
+                        const allFramesDataUrls = [];
+                        const frameInterval = Math.max(1, Math.floor(numFrames / maxFrames));
+                        
+                        for (let i = 0; i < numFrames; i += frameInterval) {
+                            if (allFramesDataUrls.length >= maxFrames) break;
+                            
+                            const framePixels = new Uint8ClampedArray(gifReader.width * gifReader.height * 4);
+                            gifReader.decodeAndBlitFrameRGBA(i, framePixels);
+                            
+                            const imageData = new ImageData(framePixels, gifReader.width, gifReader.height);
+                            ctx.putImageData(imageData, 0, 0);
+                            
+                            allFramesDataUrls.push(canvas.toDataURL('image/jpeg', 0.8));
+                        }
+                        
+                        if (allFramesDataUrls.length === 0) {
+                            reject(new Error("無法從 GIF 中提取任何影格。"));
+                            return;
+                        }
+                        
+                        resolve(allFramesDataUrls);
+                        
+                    } catch (err) {
+                        console.error('GIF 解析錯誤:', err);
+                        reject(new Error("解析GIF時發生錯誤:" + (err.message || '未知錯誤')));
+                    }
+                };
+                
+                reader.onerror = function() {
+                    reject(new Error("讀取檔案時發生錯誤。"));
+                };
+                
+                reader.readAsArrayBuffer(file);
+            });
+        }
+        
+        async function extractFramesFromVideo(file, maxFrames = 10, shouldCompress = false) {
+            return new Promise((resolve, reject) => {
+                const video = document.createElement('video');
+                video.preload = 'metadata';
+                
+                video.onloadedmetadata = function() {
+                    if (video.duration > 30) {
+                        reject(new Error("影片長度超過 30 秒,請上傳較短的影片。"));
+                        return;
+                    }
+                    
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    const frames = [];
+                    
+                    let width = video.videoWidth;
+                    let height = video.videoHeight;
+                    
+                    if (shouldCompress && height > 720) {
+                        const scale = 720 / height;
+                        width = Math.round(width * scale);
+                        height = 720;
+                    }
+                    
+                    canvas.width = width;
+                    canvas.height = height;
+                    
+                    const timeInterval = video.duration / maxFrames;
+                    let currentTime = 0;
+                    let frameCount = 0;
+                    
+                    video.onseeked = function() {
+                        ctx.drawImage(video, 0, 0, width, height);
+                        frames.push(canvas.toDataURL('image/jpeg', 0.8));
+                        
+                        frameCount++;
+                        currentTime += timeInterval;
+                        
+                        if (frameCount < maxFrames && currentTime < video.duration) {
+                            video.currentTime = currentTime;
+                        } else {
+                            if (frames.length === 0) {
+                                reject(new Error("無法從影片中提取任何影格。"));
+                            } else {
+                                URL.revokeObjectURL(video.src);
+                                resolve(frames);
+                            }
+                        }
+                    };
+                    
+                    video.onerror = function() {
+                        reject(new Error("影片處理時發生錯誤。"));
+                    };
+                    
+                    video.currentTime = currentTime;
+                };
+                
+                video.onerror = function() {
+                    reject(new Error("無法載入影片檔案。"));
+                };
+                
+                video.src = URL.createObjectURL(file);
+            });
+        }
+    </script>
+</body>
+</html>
